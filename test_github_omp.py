@@ -166,6 +166,7 @@ class WorkerTestCase(unittest.TestCase):
             interval_seconds=300,
             max_time="1h",
             model=None,
+            open_tab=False,
             auto_clone=auto_clone,
             dry_run=dry_run,
             replay_existing=replay_existing,
@@ -475,6 +476,7 @@ class IntegrationBehaviorTests(unittest.TestCase):
                 interval_seconds=300,
                 max_time="17m",
                 model="test-model",
+                open_tab=False,
                 auto_clone=True,
                 dry_run=False,
                 replay_existing=False,
@@ -519,6 +521,142 @@ class IntegrationBehaviorTests(unittest.TestCase):
             self.assertFalse(Path(prompt_argument[1:]).exists())
             self.assertIn("alice/widgets#7", capture["prompt"])
             self.assertIn("GH_OMP_RESULT: completed", capture["prompt"])
+
+    def test_omp_runner_executes_visible_tab_job_and_receives_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository_path = root / "widgets"
+            repository_path.mkdir()
+            binary_directory = root / "bin"
+            binary_directory.mkdir()
+            capture_path = root / "capture.json"
+            fake_omp = binary_directory / "omp"
+            fake_omp.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, os, pathlib, sys\n"
+                "prompt_arg = next(arg for arg in sys.argv[1:] if arg.startswith('@'))\n"
+                "payload = {'args': sys.argv[1:], 'prompt': pathlib.Path(prompt_arg[1:]).read_text(encoding='utf-8')}\n"
+                "pathlib.Path(os.environ['FAKE_OMP_CAPTURE']).write_text(json.dumps(payload), encoding='utf-8')\n"
+                "print('visible worker done')\n"
+                "print('GH_OMP_RESULT: completed')\n",
+                encoding="utf-8",
+            )
+            fake_omp.chmod(0o755)
+            config = github_omp.Config(
+                root=root,
+                state_file=root / "state" / "state.json",
+                label="omp-ready",
+                interval_seconds=10,
+                max_time="17m",
+                model=None,
+                open_tab=True,
+                auto_clone=True,
+                dry_run=False,
+                replay_existing=False,
+                watch=True,
+            )
+            item = github_omp.WorkItem(
+                kind="issue",
+                repository="alice/widgets",
+                number=7,
+                title="Fix it",
+                api_url="https://api.github.com/repos/alice/widgets/issues/7",
+                web_url="https://github.com/alice/widgets/issues/7",
+                body="Fix the failing behavior.",
+            )
+            launched: list[tuple[Path, str]] = []
+
+            def fake_launch(manifest_path: Path, title: str) -> None:
+                launched.append((manifest_path, title))
+                self.assertEqual(github_omp.execute_tab_job(manifest_path), 0)
+
+            environment = {
+                "PATH": f"{binary_directory}{os.pathsep}{os.environ['PATH']}",
+                "FAKE_OMP_CAPTURE": str(capture_path),
+            }
+            with (
+                patch.dict(os.environ, environment),
+                patch.object(github_omp, "launch_iterm_job", side_effect=fake_launch),
+            ):
+                outcome = github_omp.OmpRunner(config).run(item, repository_path)
+
+            self.assertEqual(outcome.result, "completed")
+            self.assertEqual(launched[0][1], "OMP alice/widgets#7")
+            self.assertFalse(launched[0][0].exists())
+            self.assertEqual(list((root / "state" / "jobs").iterdir()), [])
+            capture = json.loads(capture_path.read_text(encoding="utf-8"))
+            self.assertIn("--approval-mode=yolo", capture["args"])
+            self.assertIn("alice/widgets#7", capture["prompt"])
+
+    def test_visible_tab_job_failure_returns_to_watcher(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository_path = root / "widgets"
+            repository_path.mkdir()
+            binary_directory = root / "bin"
+            binary_directory.mkdir()
+            fake_omp = binary_directory / "omp"
+            fake_omp.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "print('failed visible worker')\n"
+                "sys.exit(4)\n",
+                encoding="utf-8",
+            )
+            fake_omp.chmod(0o755)
+            config = github_omp.Config(
+                root=root,
+                state_file=root / "state" / "state.json",
+                label="omp-ready",
+                interval_seconds=10,
+                max_time="17m",
+                model=None,
+                open_tab=True,
+                auto_clone=True,
+                dry_run=False,
+                replay_existing=False,
+                watch=True,
+            )
+            item = github_omp.WorkItem(
+                kind="issue",
+                repository="alice/widgets",
+                number=7,
+                title="Fix it",
+                api_url="https://api.github.com/repos/alice/widgets/issues/7",
+                web_url="https://github.com/alice/widgets/issues/7",
+                body="Fix the failing behavior.",
+            )
+
+            def fake_launch(manifest_path: Path, _title: str) -> None:
+                self.assertEqual(github_omp.execute_tab_job(manifest_path), 1)
+
+            environment = {"PATH": f"{binary_directory}{os.pathsep}{os.environ['PATH']}"}
+            with (
+                patch.dict(os.environ, environment),
+                patch.object(github_omp, "launch_iterm_job", side_effect=fake_launch),
+            ):
+                with self.assertRaisesRegex(
+                    github_omp.WorkerError, "OMP iTerm tab failed: OMP exited with 4"
+                ):
+                    github_omp.OmpRunner(config).run(item, repository_path)
+
+            self.assertEqual(list((root / "state" / "jobs").iterdir()), [])
+
+    def test_iterm_launcher_creates_tab_with_internal_job_command(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with (
+            patch.object(github_omp.sys, "platform", "darwin"),
+            patch.object(github_omp.subprocess, "run", return_value=completed) as run,
+        ):
+            github_omp.launch_iterm_job(Path("/tmp/job manifest.json"), "OMP repo#7")
+
+        arguments = run.call_args.args[0]
+        self.assertEqual(arguments[:2], ["osascript", "-e"])
+        apple_script = arguments[2]
+        self.assertIn('tell application "iTerm2"', apple_script)
+        self.assertIn("create tab with default profile command", apple_script)
+        self.assertIn("--execute-job", apple_script)
+        self.assertIn("OMP repo#7", apple_script)
 
 
 

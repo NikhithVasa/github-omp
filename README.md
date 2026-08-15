@@ -11,7 +11,7 @@ Every five minutes, the worker uses the active `gh` account to find:
 - New events on open pull requests authored by the account.
 - New events on third-party pull requests carrying the `omp-ready` label.
 
-For accepted work, it finds the matching clone under the configured repository root or clones it, refuses to run on a dirty worktree, and starts OMP inside that repository. OMP reads the GitHub discussion, implements and verifies the change, commits it, and pushes it. An issue is closed only when its verified change reaches the default branch; otherwise OMP opens or updates a pull request containing `Closes #<issue>`.
+For accepted work, it finds the matching clone under the configured repository root or clones it, refuses to run on a dirty worktree, and starts OMP inside that repository. With `--open-tab`, each job runs visibly in a new iTerm tab while the watcher waits for its completion result. OMP reads the GitHub discussion, implements and verifies the change, commits it, and pushes it. An issue is closed only when its verified change reaches the default branch; otherwise OMP opens or updates a pull request containing `Closes #<issue>`.
 
 The first normal run baselines existing open issues and unread notifications. Use `--replay-existing` to process that backlog. Processed work is recorded in `~/.local/state/github-omp/state.json`; OMP logs are stored beside it under `logs/`.
 
@@ -21,6 +21,7 @@ The first normal run baselines existing open issues and unread notifications. Us
 - `git`
 - Authenticated `gh`
 - Authenticated `omp`
+- iTerm2 when using `--open-tab`
 
 ## Run
 
@@ -28,8 +29,11 @@ The first normal run baselines existing open issues and unread notifications. Us
 # Preview current work without changing anything
 ./github_omp.py --dry-run --replay-existing
 
-# Watch for new work every five minutes
+# Watch for new work every five minutes in headless mode
 ./github_omp.py --watch
+
+# Watch every 10 seconds and open each OMP job in a new iTerm tab
+./github_omp.py --watch --interval 10 --open-tab
 
 # Process existing work, then keep watching
 ./github_omp.py --watch --replay-existing
