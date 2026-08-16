@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.nikhithvasa.github-omp</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>/Users/bruno/git/github-omp/github_omp.py</string>
+        <string>--watch</string>
+        <string>--interval</string>
+        <string>10</string>
+        <string>--open-tab</string>
+        <string>--omp-executable</string>
+        <string>/Users/bruno/.bun/bin/omp</string>
+        <string>--model</string>
+        <string>github-copilot/gpt-5.6-sol-1m</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/bruno/git/github-omp</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/bruno/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>ExitTimeOut</key>
+    <integer>10</integer>
+    <key>Umask</key>
+    <integer>63</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/bruno/.local/state/github-omp/launchd.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/bruno/.local/state/github-omp/launchd.stderr.log</string>
+</dict>
+</plist>

@@ -23,7 +23,7 @@ The first normal run baselines existing open issues and unread notifications. Us
 - Authenticated `omp`
 - iTerm2 when using `--open-tab`
 
-## Run
+## Run manually
 
 ```bash
 # Preview current work without changing anything
@@ -36,15 +36,37 @@ The first normal run baselines existing open issues and unread notifications. Us
 ./github_omp.py --watch --interval 10 --open-tab \
   --omp-executable ~/.bun/bin/omp \
   --model github-copilot/gpt-5.6-sol-1m
-
-# Process existing work, then keep watching
-./github_omp.py --watch --replay-existing
-
-# Use a different interval and repository root
-./github_omp.py --watch --interval 60 --root /path/to/repos
 ```
 
-Stop watch mode with `Ctrl+C`.
+Stop a manual watcher with `Ctrl+C`.
+
+## Start automatically on macOS
+
+`launchd/com.nikhithvasa.github-omp.plist` is a user LaunchAgent configured for this checkout. It starts the worker after graphical login, runs without a terminal, restarts it after failures, and still opens visible iTerm tabs for accepted jobs.
+
+```bash
+# Install and start
+cp launchd/com.nikhithvasa.github-omp.plist \
+  ~/Library/LaunchAgents/com.nikhithvasa.github-omp.plist
+launchctl bootstrap gui/$(id -u) \
+  ~/Library/LaunchAgents/com.nikhithvasa.github-omp.plist
+
+# Inspect
+launchctl print gui/$(id -u)/com.nikhithvasa.github-omp
+
+# Stop and unload
+launchctl bootout gui/$(id -u)/com.nikhithvasa.github-omp
+```
+
+Logs:
+
+```text
+~/.local/state/github-omp/launchd.stdout.log
+~/.local/state/github-omp/launchd.stderr.log
+~/.local/state/github-omp/logs/
+```
+
+A user LaunchAgent starts after login rather than before login because the worker needs the user keychain and Aqua session for `gh`, OMP, and iTerm.
 
 ## Security
 
