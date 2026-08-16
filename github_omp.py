@@ -52,6 +52,7 @@ class Config:
     interval_seconds: int
     max_time: str
     model: str | None
+    omp_executable: str
     open_tab: bool
     auto_clone: bool
     dry_run: bool
@@ -374,6 +375,18 @@ def duration_seconds(value: str) -> float:
     multiplier = {"": 1.0, "s": 1.0, "m": 60.0, "h": 3600.0}[match.group("unit")]
     return amount * multiplier
 
+def resolve_omp_executable(value: str) -> str:
+    expanded = str(Path(value).expanduser())
+    if os.sep in expanded:
+        path = Path(expanded)
+        if not path.is_file() or not os.access(path, os.X_OK):
+            raise WorkerError(f"OMP executable is not runnable: {path}")
+        return str(path.resolve())
+    executable = shutil.which(expanded)
+    if executable is None:
+        raise WorkerError(f"OMP executable is not available on PATH: {value}")
+    return executable
+
 
 def run_omp_command(
     command: Sequence[str], repository_path: Path, log_file: Path
@@ -454,30 +467,46 @@ def launch_iterm_job(manifest_path: Path, title: str) -> None:
     )
     terminal_command = (
         f"printf '\\033]1;%s\\007' {shlex.quote(title)}; "
-        f"{invocation}; status=$?; "
-        "printf '\\nGitHub OMP job exited with status %s.\\n' \"$status\"; "
+        f"{invocation}; job_status=$?; "
+        "printf '\nGitHub OMP job exited with status %s.\n' \"$job_status\"; "
         "exec \"${SHELL:-/bin/zsh}\" -l"
     )
     encoded_command = json.dumps(terminal_command)
     apple_script = (
+        "with timeout of 15 seconds\n"
         'tell application "iTerm2"\n'
         "activate\n"
         "if (count of windows) = 0 then\n"
-        f"create window with default profile command {encoded_command}\n"
+        "set newWindow to (create window with default profile)\n"
+        "set newSession to current session of current tab of newWindow\n"
         "else\n"
         "tell current window\n"
-        f"create tab with default profile command {encoded_command}\n"
+        "set newTab to (create tab with default profile)\n"
         "end tell\n"
+        "set newSession to current session of newTab\n"
         "end if\n"
-        "end tell"
+        "delay 0.5\n"
+        'tell newSession to write text "n"\n'
+        "repeat 40 times\n"
+        "delay 0.25\n"
+        "if not (is processing of newSession) then exit repeat\n"
+        "end repeat\n"
+        "delay 0.5\n"
+        f"tell newSession to write text {encoded_command}\n"
+        "end tell\n"
+        "end timeout"
     )
-    completed = subprocess.run(
-        ["osascript", "-e", apple_script],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            ["osascript", "-e", apple_script],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise WorkerError("timed out while opening an iTerm tab") from error
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip()
         raise WorkerError(f"could not open an iTerm tab: {detail}")
@@ -488,9 +517,7 @@ class OmpRunner:
         self.config = config
 
     def _command(self, repository_path: Path, prompt_path: Path) -> list[str]:
-        executable = shutil.which("omp")
-        if executable is None:
-            raise WorkerError("omp is not available on PATH")
+        executable = resolve_omp_executable(self.config.omp_executable)
         command = [
             executable,
             "-p",
@@ -1053,6 +1080,11 @@ def parse_args(argv: Sequence[str] | None = None) -> Config:
         help="optional OMP model selector",
     )
     parser.add_argument(
+        "--omp-executable",
+        default=os.environ.get("GH_OMP_EXECUTABLE", "omp"),
+        help="OMP executable name or absolute path",
+    )
+    parser.add_argument(
         "--open-tab",
         action="store_true",
         default=environment_bool("GH_OMP_OPEN_TAB", False),
@@ -1090,6 +1122,10 @@ def parse_args(argv: Sequence[str] | None = None) -> Config:
         duration_seconds(arguments.max_time)
     except WorkerError as error:
         parser.error(str(error))
+    try:
+        omp_executable = resolve_omp_executable(arguments.omp_executable)
+    except WorkerError as error:
+        parser.error(str(error))
     return Config(
         root=arguments.root.expanduser().resolve(),
         state_file=arguments.state_file.expanduser().resolve(),
@@ -1097,6 +1133,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Config:
         interval_seconds=arguments.interval,
         max_time=arguments.max_time,
         model=arguments.model,
+        omp_executable=omp_executable,
         open_tab=arguments.open_tab,
         auto_clone=arguments.auto_clone,
         dry_run=arguments.dry_run,

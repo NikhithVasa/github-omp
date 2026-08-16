@@ -33,7 +33,9 @@ The first normal run baselines existing open issues and unread notifications. Us
 ./github_omp.py --watch
 
 # Watch every 10 seconds and open each OMP job in a new iTerm tab
-./github_omp.py --watch --interval 10 --open-tab
+./github_omp.py --watch --interval 10 --open-tab \
+  --omp-executable ~/.bun/bin/omp \
+  --model github-copilot/gpt-5.6-sol-1m
 
 # Process existing work, then keep watching
 ./github_omp.py --watch --replay-existing

@@ -166,6 +166,7 @@ class WorkerTestCase(unittest.TestCase):
             interval_seconds=300,
             max_time="1h",
             model=None,
+            omp_executable="omp",
             open_tab=False,
             auto_clone=auto_clone,
             dry_run=dry_run,
@@ -476,6 +477,7 @@ class IntegrationBehaviorTests(unittest.TestCase):
                 interval_seconds=300,
                 max_time="17m",
                 model="test-model",
+                omp_executable="omp",
                 open_tab=False,
                 auto_clone=True,
                 dry_run=False,
@@ -549,6 +551,7 @@ class IntegrationBehaviorTests(unittest.TestCase):
                 interval_seconds=10,
                 max_time="17m",
                 model=None,
+                omp_executable="omp",
                 open_tab=True,
                 auto_clone=True,
                 dry_run=False,
@@ -615,6 +618,7 @@ class IntegrationBehaviorTests(unittest.TestCase):
                 auto_clone=True,
                 dry_run=False,
                 replay_existing=False,
+                omp_executable="omp",
                 watch=True,
             )
             item = github_omp.WorkItem(
@@ -654,9 +658,17 @@ class IntegrationBehaviorTests(unittest.TestCase):
         self.assertEqual(arguments[:2], ["osascript", "-e"])
         apple_script = arguments[2]
         self.assertIn('tell application "iTerm2"', apple_script)
-        self.assertIn("create tab with default profile command", apple_script)
+        self.assertIn("set newTab to (create tab with default profile)", apple_script)
+        self.assertIn("tell current window", apple_script)
+        self.assertIn('tell newSession to write text "n"', apple_script)
+        self.assertIn("is processing of newSession", apple_script)
+        self.assertIn("delay 0.5", apple_script)
+        self.assertIn("tell newSession to write text", apple_script)
         self.assertIn("--execute-job", apple_script)
         self.assertIn("OMP repo#7", apple_script)
+        self.assertEqual(run.call_args.kwargs["timeout"], 20)
+        self.assertIn("job_status=$?", apple_script)
+        self.assertNotIn("; status=$?", apple_script)
 
 
 
